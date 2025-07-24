@@ -156,6 +156,13 @@ for(f in files){
       is_within <- length(sf::st_within(sf::st_transform(centroid,sf::st_crs(land)), land))
       print(paste("Centroid is within land area:", is_within > 0))
       
+      # second try with small islands
+      if(is_within == 0) {
+        land <- sf::st_read("geodata/ne_10m_minor_islands.shp", quiet = T)
+        is_within <- length(sf::st_within(sf::st_transform(centroid,sf::st_crs(land)), land))
+        print(paste("Centroid is within minor island area:", is_within > 0))
+      }
+      
       if(is_within == 0) {
         errors <- c(errors, "Centroid is not within land area")
       }

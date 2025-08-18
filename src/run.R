@@ -27,44 +27,7 @@ fname <- sub("\\.las$|\\.laz$", "", fname)
 # This is complete madness. It is necessary to bypass the extension check in lidR.
 # This is a hack to get the tool to work in Galaxy.
 log_info("Loading data from {args$dataset_path}...")
-las <- NULL
-tryCatch({
-  # Try reading with explicit filter to bypass extension check
-  las <<- lidR::readLAS(args$dataset_path, filter = "")
-  log_info("Successfully loaded LAS file with lidR")
-}, error = function(e) {
-  log_warn("Failed to read LAS file with lidR: {e$message}")
-  log_info("Trying alternative approach with rlas package...")
-  # Try using rlas directly as fallback
-  if (!require(rlas, quietly = TRUE)) {
-    install.packages("rlas", repos = "https://cloud.r-project.org/")
-    library(rlas)
-  }
-  tryCatch({
-    # Try reading with rlas using raw mode
-    las_data <- rlas::read.las(args$dataset_path, filter = "")
-    las <<- lidR::LAS(las_data)
-    log_info("Successfully loaded LAS file using rlas")
-  }, error = function(e2) {
-    log_warn("Failed to read with rlas: {e2$message}")
-    log_info("Trying to read as raw binary and convert...")
-    # Last resort: read as raw binary and try to parse
-    raw_data <- readBin(args$dataset_path, "raw", n = file.size(args$dataset_path))
-    # Check if it's a valid LAS file by looking for LASF signature
-    if (length(raw_data) >= 4 && all(raw_data[1:4] == as.raw(c(0x4C, 0x41, 0x53, 0x46)))) {
-      log_info("File has valid LAS signature, attempting to force read...")
-      # Create a temporary file with .laz extension
-      temp_file <- tempfile(fileext = ".laz")
-      writeBin(raw_data, temp_file)
-      las <<- lidR::readLAS(temp_file)
-      log_info("Successfully loaded LAS file using temporary file")
-      log_warn("ATTENTION: The file could only be loaded as raw binary copied to a temporary file to bypass the extension check in lidR and rlas. That means you ran through an unnecessary conversion step.")
-    } else {
-      log_error("We tried everything from obvious to insane to load the file. File does not appear to be a valid LAS/LAZ file")
-      stop("File does not appear to be a valid LAS/LAZ file")
-    }
-  })
-})
+las <- lidR::readLAS(args$dataset_path)
 
 if (is.null(las)) {
   stop("Failed to load LAS file with all methods")

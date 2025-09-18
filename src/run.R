@@ -1,6 +1,9 @@
 source("parameters.R")
 library(logger)
 
+# setup logging i json format
+logger::log_layout(logger::layout_json())
+
 args <- parse_parameters()
 log_threshold(DEBUG)
 log_debug("Parameters parsed: {args}")
@@ -17,6 +20,17 @@ log_info("File size: {file.size(args$dataset_path)} bytes")
 
 output_folder <- args$output_dir
 f <- args$dataset_path
+
+# send log to a json file named f.json in output dir
+log_path <- file.path(output_folder, paste0(basename(f), ".json"))
+log_info("Logging to {log_path}")
+
+if(file.exists(log_path)) {
+  file.remove(log_path)
+  log_warn("Log {log_path} already existed and has been removed.")
+}
+
+logger::log_appender(appender_file(log_path))
 
   
 fname <- basename(f)
@@ -41,7 +55,11 @@ check1 <- lidR::las_check(las)
 
 if(length(check1$errors) > 0) {
     log_error("Errors found in the LAS object: {check1$errors}")
-    stop("Errors found in the LAS object")
+    #stop("Errors found in the LAS object")
+}
+
+if(length(check1$warnings) > 0) {
+    log_warn("Warnings found in the LAS object: {check1$warnings}")
 }
 
 if(nrow(las) < 100){
@@ -129,8 +147,8 @@ log_info("CRS is not NA: {is.na(sf::st_crs(las))}")
 
 # add to list 
 if(!has_crs) {
-    log_error("CRS is NA")
-    stop("CRS is NA")
+    log_warn("CRS is NA")
+    # stop("CRS is NA")
 } else {
     # is it possible to transform the CRS to 3857
     is_transformable <- tryCatch({
@@ -146,8 +164,8 @@ if(!has_crs) {
     
     # add to list
     if(!is_transformable) {
-    log_error("CRS is not transformable to 3857")
-    stop("CRS is not transformable to 3857")
+    log_error("CRS is not transformable to epsg:3857")
+    # stop("CRS is not transformable to epsg:3857")
     }
 }
 
@@ -155,8 +173,9 @@ if(!has_crs) {
 # check if las Point Data Record Format is to high
 if(las@header$`Point Data Format ID` > 7){
     if("NIR" %in% names(las@data)){
-    las <- lidR::add_lasattribute(las, las@data$NIR, "NIRe", "the NIR channel changed to an extra byte attribute") |> 
-        lidR::remove_lasattribute("NIR")
+    las <- lidR::add_lasattribute(las, las@data$NIR, "NIRe", "the NIR channel changed to an extra byte attribute") #|> 
+        #lidR::remove_lasattribute("NIR")
+    las@data$NIR <- NULL
     }
     las@header$`Point Data Format ID` <- 7
     log_warn("Las point data record format was >= 7 and has been downgraded. Full waveform might be lost. NIR might be renamed.")
@@ -164,7 +183,7 @@ if(las@header$`Point Data Format ID` > 7){
 
 # check if the bbox-centroid is on land area
 if(has_crs && is_transformable){
-    library(sf)
+    #library(sf)
     bbox <- lidR::st_bbox(las)
     centroid <- sf::st_centroid(sf::st_as_sfc(bbox))
     

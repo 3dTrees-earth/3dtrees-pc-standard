@@ -22,7 +22,7 @@ output_folder <- args$output_dir
 f <- args$dataset_path
 
 # send log to stderr instead of a file to avoid permission issues
-logger::log_appender(appender_stderr())
+logger::log_appender(appender_stderr)
 
   
 fname <- basename(f)

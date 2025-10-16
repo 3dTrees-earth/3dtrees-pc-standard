@@ -21,16 +21,8 @@ log_info("File size: {file.size(args$dataset_path)} bytes")
 output_folder <- args$output_dir
 f <- args$dataset_path
 
-# send log to a json file named f.json in output dir
-log_path <- file.path(output_folder, paste0(basename(f), ".json"))
-log_info("Logging to {log_path}")
-
-if(file.exists(log_path)) {
-  file.remove(log_path)
-  log_warn("Log {log_path} already existed and has been removed.")
-}
-
-logger::log_appender(appender_file(log_path))
+# send log to stderr instead of a file to avoid permission issues
+logger::log_appender(appender_stderr())
 
   
 fname <- basename(f)

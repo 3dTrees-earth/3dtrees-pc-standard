@@ -20,6 +20,14 @@ parse_parameters <- function() {
         help = "Output directory"
     )
 
+    parser$add_argument(
+        "--min-density", "--min_density",
+        type = "integer",
+        required = FALSE,
+        default = 500,
+        help = "Minimum point density threshold (points per square meter)"
+    )
+
     # Parse the arguments
     args <- parser$parse_args()
 

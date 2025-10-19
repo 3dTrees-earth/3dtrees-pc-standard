@@ -89,9 +89,11 @@ if(any(extend_z < -100 || extend_z > 5500)) {
 convex_hull <- las@data[chull(las@data[,c("X","Y")]),c("X","Y")]
 covered_area <- list(as.matrix(rbind(convex_hull, convex_hull[1,]))) |> sf::st_polygon() |> sf::st_area()
 point_density <- nrow(las@data) / covered_area
-if(point_density <= 500) {
-    log_error("Point density is less than or equal to 500 points per square meter. Is this maybe ALS data or multiple separated plots in one file?")
-    stop("Point density is less than or equal to 500 points per square meter. Is this maybe ALS data or multiple separated plots in one file?")
+min_density_threshold <- args$min_density
+log_info("Point density: {point_density} points/m², minimum threshold: {min_density_threshold} points/m²")
+if(point_density <= min_density_threshold) {
+    log_error("Point density is less than or equal to {min_density_threshold} points per square meter. Is this maybe ALS data or multiple separated plots in one file?")
+    stop("Point density is less than or equal to ", min_density_threshold, " points per square meter. Is this maybe ALS data or multiple separated plots in one file?")
 }
 
 # check the extra byte arguments have the right data type from las@header@VLR$Extra_Bytes$`Extra Bytes Description`

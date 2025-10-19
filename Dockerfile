@@ -7,5 +7,7 @@ RUN mkdir -p /in && mkdir -p /out && mkdir -p /src/geodata
 COPY src /src
 COPY geodata /src/geodata
 
+RUN chmod -R 777 /in /out /src
+
 WORKDIR /src
 CMD ["Rscript", "run.R"]

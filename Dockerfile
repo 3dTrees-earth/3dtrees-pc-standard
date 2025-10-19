@@ -1,5 +1,5 @@
 FROM --platform=linux/amd64 rocker/geospatial:4.5
-
+SHELL ["/bin/bash", "-c"]
 RUN apt-get update && apt-get upgrade -y
 RUN R -e "install.packages(c('lidR', 'data.table', 'sf', 'jsonlite', 'argparse', 'rlas', 'rcpp'))"
 

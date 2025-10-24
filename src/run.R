@@ -4,11 +4,16 @@ library(logger)
 # setup logging i json format
 logger::log_layout(logger::layout_json())
 
+# args <- list(output_dir = getwd(), dataset_path = "C:/TLS/docker/input/Platane_pcrs.laz", min_density = 250)
 args <- parse_parameters()
-logger::log_threshold(DEBUG)
-
+logger::log_threshold(INFO)
+output_folder <- args$output_dir
+f <- args$dataset_path
+fname <- basename(f)
+# strip off file ending
+fname <- sub("\\.las$|\\.laz$", "", fname)
 # send log to a json file named f.json in output dir
-log_path <- file.path(output_folder, paste0(basename(f), ".json"))
+log_path <- file.path(output_folder, paste0(fname, ".json"))
 
 logger::log_info("Logging to {log_path}")
 
@@ -27,25 +32,11 @@ library(lidR)
 logger::log_info("Attempting to read file directly: {args$dataset_path}")
 logger::log_info("File size: {file.size(args$dataset_path)} bytes")
 
-# copy from validate_las.R
-# validate_las.R
-
-output_folder <- args$output_dir
-f <- args$dataset_path
-
-# send log to stderr instead of a file to avoid permission issues
-logger::log_appender(appender_stderr)
-
-  
-fname <- basename(f)
-# strip off file ending
-fname <- sub("\\.las$|\\.laz$", "", fname)
-
 # load data 
 # This is complete madness. It is necessary to bypass the extension check in lidR.
 # This is a hack to get the tool to work in Galaxy.
 logger::log_info("Loading data from {args$dataset_path}...")
-las <- lidR::readLAS(args$dataset_path)
+las <- lidR::readLAS(f)
 
 if (is.null(las)) {
   stop("Failed to load LAS file with all methods")
@@ -239,8 +230,7 @@ output_file <- "pc_standardized.laz"
 writeLAS(las, output_file)
 if(is_transformable){
   
-  sf::st_write(convex_hull_sf, "convex_hull_wgs84.GeoJSON")
+  sf::st_write(convex_hull_sf, "convex_hull_wgs84.GeoJSON", append=FALSE)
+  logger::log_info("CRS is valid and transformable and the convex hull was written to convex_hull_wgs84.GeoJSON")
 }
 logger::log_info("File {fname} is valid and has been written to {output_file}.")
-
-  

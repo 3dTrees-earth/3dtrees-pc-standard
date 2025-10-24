@@ -5,15 +5,27 @@ library(logger)
 logger::log_layout(logger::layout_json())
 
 args <- parse_parameters()
-log_threshold(DEBUG)
-log_debug("Parameters parsed: {args}")
+logger::log_threshold(DEBUG)
+
+# send log to a json file named f.json in output dir
+log_path <- file.path(output_folder, paste0(basename(f), ".json"))
+
+logger::log_info("Logging to {log_path}")
+
+if(file.exists(log_path)) {
+  file.remove(log_path)
+  logger::log_warn("Log {log_path} already existed and has been removed.")
+}
+
+logger::log_appender(appender_file(log_path))
+logger::log_debug("Parameters parsed: {args}")
 
 # load the necessary libraries
 library(lidR)
 
 # Try to read the file directly with lidR, bypassing extension check
-log_info("Attempting to read file directly: {args$dataset_path}")
-log_info("File size: {file.size(args$dataset_path)} bytes")
+logger::log_info("Attempting to read file directly: {args$dataset_path}")
+logger::log_info("File size: {file.size(args$dataset_path)} bytes")
 
 # copy from validate_las.R
 # validate_las.R
@@ -32,36 +44,36 @@ fname <- sub("\\.las$|\\.laz$", "", fname)
 # load data 
 # This is complete madness. It is necessary to bypass the extension check in lidR.
 # This is a hack to get the tool to work in Galaxy.
-log_info("Loading data from {args$dataset_path}...")
+logger::log_info("Loading data from {args$dataset_path}...")
 las <- lidR::readLAS(args$dataset_path)
 
 if (is.null(las)) {
   stop("Failed to load LAS file with all methods")
 }
-log_info("LAS file loaded successfully")
-log_info("Number of points: {nrow(las)}")
-log_info("Point format: {las@header$`Point Data Format ID`}")
+logger::log_info("LAS file loaded successfully")
+logger::log_info("Number of points: {nrow(las)}")
+logger::log_info("Point format: {las@header$`Point Data Format ID`}")
 
 # check the LAS object
 check1 <- lidR::las_check(las)
 
 if(length(check1$errors) > 0) {
-    log_error("Errors found in the LAS object: {check1$errors}")
+  logger::log_error("Errors found in the LAS object: {check1$errors}")
     #stop("Errors found in the LAS object")
 }
 
 if(length(check1$warnings) > 0) {
-    log_warn("Warnings found in the LAS object: {check1$warnings}")
+  logger::log_warn("Warnings found in the LAS object: {check1$warnings}")
 }
 
 if(nrow(las) < 100){
-    log_error("Las file has < 100 points and will be dropped")
+  logger::log_error("Las file has < 100 points and will be dropped")
     stop("Las file has < 100 points and will be dropped")
 } 
 
 if(any(c("Invalid file: some points are outside the bounding box defined by the header","Invalid file: the bounding box defined by the header does not correspond to the points.") %in% check1$warnings)) {
     las <- lidR::las_update(las)
-    log_warn("bbox adapted since it did not match the points")
+    logger::log_warn("bbox adapted since it did not match the points")
 }
 
 # check if all dimensions have an extend > 1m 
@@ -70,29 +82,30 @@ extend_x <- bbox$xmax - bbox$xmin
 extend_y <- bbox$ymax - bbox$ymin
 extend_z <- max(las@data$Z, na.rm = TRUE) - min(las@data$Z, na.rm = TRUE)
 
-log_info("Extend in X: {extend_x}")
-log_info("Extend in Y: {extend_y}")
-log_info("Extend in Z: {extend_z}")
+logger::log_info("Extend in X: {extend_x}")
+logger::log_info("Extend in Y: {extend_y}")
+logger::log_info("Extend in Z: {extend_z}")
 
 if(extend_x <= 1 || extend_y <= 1 || extend_z <= 1) {
-    log_error("Extend in one or more dimensions is less than or equal to 1m")
+  logger::log_error("Extend in one or more dimensions is less than or equal to 1m")
     stop("Extend in one or more dimensions is less than or equal to 1m")
 }
 
 # check if the Z coordinate range is plausible > -100 & < 5500 
 if(any(extend_z < -100 || extend_z > 5500)) {
-    log_error("Z coordinate range is not plausible: < -100 or > 5500")
+  logger::log_error("Z coordinate range is not plausible: < -100 or > 5500")
     stop("Z coordinate range is not plausible: < -100 or > 5500")
 }
 
 # calculate the point density
-convex_hull <- las@data[chull(las@data[,c("X","Y")]),c("X","Y")]
-covered_area <- list(as.matrix(rbind(convex_hull, convex_hull[1,]))) |> sf::st_polygon() |> sf::st_area()
+convex_hull <- las@data[chull(las@data[,c("X","Y")]),c("X","Y")] 
+convex_hull <- list(as.matrix(rbind(convex_hull, convex_hull[1,]))) |> sf::st_polygon()
+covered_area <- convex_hull |> sf::st_area()
 point_density <- nrow(las@data) / covered_area
 min_density_threshold <- args$min_density
-log_info("Point density: {point_density} points/m², minimum threshold: {min_density_threshold} points/m²")
+logger::log_info("Point density: {point_density} points/m², minimum threshold: {min_density_threshold} points/m²")
 if(point_density <= min_density_threshold) {
-    log_error("Point density is less than or equal to {min_density_threshold} points per square meter. Is this maybe ALS data or multiple separated plots in one file?")
+  logger::log_error("Point density is less than or equal to {min_density_threshold} points per square meter. Is this maybe ALS data or multiple separated plots in one file?")
     stop("Point density is less than or equal to ", min_density_threshold, " points per square meter. Is this maybe ALS data or multiple separated plots in one file?")
 }
 
@@ -126,7 +139,7 @@ if(any(!(names(las@data) %in% lidR:::LASATTRIBUTES))){
     type_def$real_types <- sapply(las@data[,as.character(type_def$name), with = FALSE], class)
     
     if(!all(types[as.numeric(type_def$data_type)] == type_def$real_types)) {
-    log_warn("Extra byte arguments with the wrong data type detected")
+      logger::log_warn("Extra byte arguments with the wrong data type detected")
     wrong_id <- which(types[as.numeric(type_def$data_type)] != type_def$real_types)
     for(i in wrong_id){
         #TODO: This is a hot-fix. Better check if a short or unsigned is also sufficient 
@@ -141,25 +154,31 @@ log_info("CRS is not NA: {is.na(sf::st_crs(las))}")
 
 # add to list 
 if(!has_crs) {
-    log_warn("CRS is NA")
+  log_warn("CRS is NA")
+  is_transformable <- FALSE
     # stop("CRS is NA")
 } else {
-    # is it possible to transform the CRS to 3857
+    # is it possible to transform the CRS to 4978
     is_transformable <- tryCatch({
     random_sample <- rep(F, nrow(las@data))
     random_sample[sample(1:nrow(las@data), min(100, nrow(las@data)))] <- TRUE
-    las_trans <- sf::st_transform(lidR::filter_poi(las, random_sample), 3857)
+    las_trans <- sf::st_transform(lidR::filter_poi(las, random_sample), 4978)
     TRUE
     }, error =  function(e) {
-    log_error("Error in transforming CRS: {e$message}")
-    FALSE
+      log_error("Error in transforming CRS: {e$message}")
+      FALSE
     })
-    log_info("CRS is transformable to 3857: {is_transformable}")
+    log_info("CRS is transformable to 4978: {is_transformable}")
     
-    # add to list
-    if(!is_transformable) {
-    log_error("CRS is not transformable to epsg:3857")
-    # stop("CRS is not transformable to epsg:3857")
+    # convert convex_hull to EPSG:4326
+    if(is_transformable){
+      convex_hull_sf <- convex_hull |> sf::st_polygon() |> sf::st_sfc(crs = lidR::st_crs(las)) |> sf::st_transform(4326)
+      wgs84_coordinates <- sf::st_coordinates(convex_hull_sf) |> as.data.frame()
+      
+      if(any(wgs84_coordinates$X >= 180 | wgs84_coordinates$X <= -180 | wgs84_coordinates$Y >= 90 | wgs84_coordinates$Y <= -90)){
+        logger::log_warn("Implausible bbox detected.")
+        is_transformable <- FALSE
+      }
     }
 }
 
@@ -172,11 +191,11 @@ if(las@header$`Point Data Format ID` > 7){
     las@data$NIR <- NULL
     }
     las@header$`Point Data Format ID` <- 7
-    log_warn("Las point data record format was >= 7 and has been downgraded. Full waveform might be lost. NIR might be renamed.")
+    logger::log_warn("Las point data record format was >= 7 and has been downgraded. Full waveform might be lost. NIR might be renamed.")
 }
 
 # check if the bbox-centroid is on land area
-if(has_crs && is_transformable){
+if(is_transformable){
     #library(sf)
     bbox <- lidR::st_bbox(las)
     centroid <- sf::st_centroid(sf::st_as_sfc(bbox))
@@ -186,19 +205,30 @@ if(has_crs && is_transformable){
     
     # check if the centroid is within the land area
     is_within <- length(sf::st_within(sf::st_transform(centroid,sf::st_crs(land)), land))
-    log_info("Centroid is within land area: {is_within > 0}")
+    logger::log_info("Centroid is within land area: {is_within > 0}")
     
     # second try with small islands
     if(is_within == 0) {
     land <- sf::st_read("geodata/ne_10m_minor_islands.shp", quiet = T)
     is_within <- length(sf::st_within(sf::st_transform(centroid,sf::st_crs(land)), land))
-    log_info("Centroid is within minor island area: {is_within > 0}")
+    logger::log_info("Centroid is within minor island area: {is_within > 0}")
     }
     
     if(is_within == 0) {
-        log_error("Centroid is not within land area")
-        stop("Centroid is not within land area")
+      logger::log_error("Centroid is not within land area")
+      is_transformable <- FALSE
+      #stop("Centroid is not within land area")
     }
+} 
+if(!is_transformable){
+    logger::log_error("CRS is not transformable to epsg:4978")
+    logger::log_warn("Reoffset dataset to 0,0,0, fake-CRS will be set to EPSG:4978")
+    las@data$X <- las@data$X - min(las@data$X)
+    las@data$Y <- las@data$Y - min(las@data$Y)
+    las@data$Z <- las@data$Z - min(las@data$Z)
+    las <- las |> lidR::las_reoffset()
+    lidR::st_crs(las) <- 4978
+    # stop("CRS is not transformable to epsg:3857")
 }
 
 # change directory to output folder
@@ -207,6 +237,10 @@ setwd(output_folder)
 # write the las file to the output folder
 output_file <- "pc_standardized.laz"
 writeLAS(las, output_file)
-log_info("File {fname} is valid and has been written to {output_file}.")
+if(is_transformable){
+  
+  sf::st_write(convex_hull_sf, "convex_hull_wgs84.GeoJSON")
+}
+logger::log_info("File {fname} is valid and has been written to {output_file}.")
 
   

@@ -153,6 +153,41 @@ if(any(!(names(las@data) %in% lidR:::LASATTRIBUTES))){
     }
 }
 
+# check for NA and static values in columns
+removed <- 0
+for(col in 1:ncol(las@data)){
+  attribute <- colnames(las@data)[col-removed]
+  
+  # check for NA values 
+  na_s <- which(is.na(las@data[,get(attribute)]))
+  if(length(na_s) != 0) {
+    if((length(na_s)/nrow(las@data)) > 0.01 & !(attribute %in% lidR:::LASATTRIBUTES)){
+      las <- las |> remove_lasattribute(attribute)
+      logger::log_warn("Las-attribute {attribute} contained NA values for more than 1% of points and had been removed.")
+      removed <- removed + 1
+      next
+    } else if( !(attribute %in% lidR:::LASATTRIBUTES)) {
+      las@data <- las@data[-na_s,]
+      logger::log_warn("Las-attribute {attribute} contained NA values for less than 1% of points and those {length(na_s)} points have been removed.")
+    } else {
+      las@data[na_s, get(attribute)] <- 0
+      logger::log_warn("Las-attribute {attribute} contained NA values for {length(na_s)} points and those have been set to 0.")
+    }
+  }
+  
+  # check for static values in columns
+  if(length(unique(las@data[,get(attribute)])) == 1) {
+    removed <- removed + 1
+    if( !(attribute %in% lidR:::LASATTRIBUTES)) {
+      las <- remove_lasattribute(las, attribute)
+    } else {
+      las@data <- las@data[,(attribute):=NULL]
+    }
+    logger::log_warn("Las-attribute {attribute} contained only one unique value and had been removed.")
+  }
+  
+}
+
 
 logger::log_info("Attributes compleate, start CRS check.")
 

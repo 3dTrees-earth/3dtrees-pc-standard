@@ -277,17 +277,18 @@ if(!is_transformable){
 logger::log_info("CRS compleate, compile coloring information.")
 
 
-summarystats <- function(x) c(min = min(x), max = max(x), mean = mean(x), median = median(x), sd = sd(x), q = quantile(x, c(0.05, 0.95)))
+summarystats <- function(x) c(min = min(x), max = max(x), mean = mean(x), median = median(x), sd = sd(x), q = quantile(x, c(0.05, 0.95)), n_unique = length(unique(x)),unique_point_ratio = length(unique(x)) / length(x), type = typeof(x))
 col_info <- list()
 
 col_info$has_RGB <- all(c("R","G","B") %in% colnames(las@data))
-col_info$summary_labels <- c("min","max","mean","median","sd","qantile5percent","qantile95percent")
+col_info$summary_labels <- c("min","max","mean","median","sd","qantile5percent","qantile95percent", "n_unique", "unique_point_ratio", "type")
 col_info$attribute_summary <- lapply(las@data, summarystats)
-
 
 con <- file(log_path, "a+")
   jsonlite::write_json(col_info, con)
 close(con)
+
+logger::log_info("Color information compleate, write outputs.")
 
 # change directory to output folder
 setwd(output_folder)

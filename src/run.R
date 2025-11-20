@@ -274,7 +274,20 @@ if(!is_transformable){
     # stop("CRS is not transformable to epsg:3857")
 }
 
-logger::log_info("CRS compleate, write outputs.")
+logger::log_info("CRS compleate, compile coloring information.")
+
+
+summarystats <- function(x) c(min = min(x), max = max(x), mean = mean(x), median = median(x), sd = sd(x), q = quantile(x, c(0.05, 0.95)))
+col_info <- list()
+
+col_info$has_RGB <- all(c("R","G","B") %in% colnames(las@data))
+col_info$summary_labels <- c("min","max","mean","median","sd","qantile5percent","qantile95percent")
+col_info$attribute_summary <- lapply(las@data, summarystats)
+
+
+con <- file(log_path, "a+")
+  jsonlite::write_json(col_info, con)
+close(con)
 
 # change directory to output folder
 setwd(output_folder)

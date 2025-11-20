@@ -29,13 +29,13 @@ logger::log_debug("Parameters parsed: {args}")
 library(lidR)
 
 # Try to read the file directly with lidR, bypassing extension check
-logger::log_info("Attempting to read file directly: {args$dataset_path}")
-logger::log_info("File size: {file.size(args$dataset_path)} bytes")
+logger::log_info("Attempting to read file directly: {f}")
+logger::log_info("File size: {file.size(f)} bytes")
 
 # load data 
 # This is complete madness. It is necessary to bypass the extension check in lidR.
 # This is a hack to get the tool to work in Galaxy.
-logger::log_info("Loading data from {args$dataset_path}...")
+logger::log_info("Loading data from {f}...")
 las <- lidR::readLAS(f)
 
 if (is.null(las)) {
@@ -46,7 +46,11 @@ logger::log_info("Number of points: {nrow(las)}")
 logger::log_info("Point format: {las@header$`Point Data Format ID`}")
 
 # check the LAS object
-check1 <- lidR::las_check(las)
+check1 <- list(warnings = "Unable to run las_check!")
+tryCatch(check1 <- lidR::las_check(las), "C++Error" = function(e){
+  cat( sprintf( "C++ exception of class '%s' : %s\n", class(e)[1L], e$message  ) )
+})
+
 
 if(length(check1$errors) > 0) {
   logger::log_error("Errors found in the LAS object: {check1$errors}")
@@ -88,8 +92,16 @@ if(any(extend_z < -100 || extend_z > 5500)) {
     stop("Z coordinate range is not plausible: < -100 or > 5500")
 }
 
+logger::log_info("Extend check compleate, start chull calculation.")
+
 # calculate the point density
-convex_hull <- las@data[chull(las@data[,c("X","Y")]),c("X","Y")] 
+if(nrow(las) > 5e+08){ # point cloud > 500,000,000 points allocate gigantic amounts of memory
+  idx <- sample(1:nrow(las), 5e+08)
+  convex_hull <- las@data[idx,c("X","Y")][chull(las@data[idx,c("X","Y")]),] 
+} else {
+  convex_hull <- las@data[chull(las@data[,c("X","Y")]),c("X","Y")]
+}
+
 convex_hull <- list(as.matrix(rbind(convex_hull, convex_hull[1,]))) |> sf::st_polygon()
 covered_area <- convex_hull |> sf::st_area()
 point_density <- nrow(las@data) / covered_area
@@ -99,6 +111,8 @@ if(point_density <= min_density_threshold) {
   logger::log_error("Point density is less than or equal to {min_density_threshold} points per square meter. Is this maybe ALS data or multiple separated plots in one file?")
     stop("Point density is less than or equal to ", min_density_threshold, " points per square meter. Is this maybe ALS data or multiple separated plots in one file?")
 }
+
+logger::log_info("Chull compleate, start attribute check.")
 
 # check the extra byte arguments have the right data type from las@header@VLR$Extra_Bytes$`Extra Bytes Description`
 # Type 1: char (1 byte) (not allowed in R)
@@ -138,6 +152,9 @@ if(any(!(names(las@data) %in% lidR:::LASATTRIBUTES))){
     }
     }
 }
+
+
+logger::log_info("Attributes compleate, start CRS check.")
 
 # check if CRS is specified
 has_crs <- !is.na(sf::st_crs(las))
@@ -221,6 +238,8 @@ if(!is_transformable){
     lidR::st_crs(las) <- 4978
     # stop("CRS is not transformable to epsg:3857")
 }
+
+logger::log_info("CRS compleate, write outputs.")
 
 # change directory to output folder
 setwd(output_folder)

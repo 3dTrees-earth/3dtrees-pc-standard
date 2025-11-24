@@ -1,6 +1,48 @@
 source("parameters.R")
 library(logger)
 
+attribute_stats <- function(df, na.rm = TRUE) {
+  
+  ## Iterate over column names -------------------------------------------------
+  col_list <- lapply(names(df), function(col) {
+    vec <- df[[col]]
+    
+    ## basic descriptors -------------------------------------------------------
+    is_num   <- is.numeric(vec)                   # numeric ? → mean/SD/hist
+    cnt      <- length(vec)                       # total # of rows
+    nulls    <- sum(is.na(vec))                    # NA count
+    distinct_cnt <- length(unique(vec[!is.na(vec)]))  # distinct (ignores NAs)
+    
+    ## numeric‑only statistics --------------------------------------------------
+    mn  <- if (is_num) min(vec, na.rm = TRUE) else NA_real_
+    mx  <- if (is_num) max(vec, na.rm = TRUE) else NA_real_
+    av  <- if (is_num) mean(vec, na.rm = na.rm) else NA_real_
+    me <- if (is_num) median(vec, na.rm = na.rm) else NA_real_
+    sdv <- if (is_num) sd(vec,   na.rm = na.rm) else NA_real_
+    
+    ## Return a **named list** that represents one row of the final table ------
+    list(
+      name        = col,
+      count       = cnt,
+      nulls       = nulls,
+      distinct    = distinct_cnt,
+      minimum     = mn,
+      maximum     = mx,
+      average     = av,
+      median      = me,
+      stddev      = sdv
+    )
+})}
+
+las_info <- function(las){
+  info <- list()
+  info$bbox <- as.list(lidR::st_bbox(las))
+  info$point_count <- nrow(las@data)
+  info$crs <- jsonlite::toJSON(lapply(lidR::st_crs(las), as.list))
+  info$dimensions <- attribute_stats(las@data)
+  return(info)
+}
+
 # setup logging i json format
 logger::log_layout(logger::layout_json())
 
@@ -38,6 +80,8 @@ logger::log_info("File size: {file.size(f)} bytes")
 logger::log_info("Loading data from {f}...")
 las <- lidR::readLAS(f)
 
+las_info_pre <- las_info(las)
+
 if (is.null(las)) {
   stop("Failed to load LAS file with all methods")
 }
@@ -60,6 +104,11 @@ if(length(check1$errors) > 0) {
 if(length(check1$warnings) > 0) {
   logger::log_warn("Warnings found in the LAS object: {check1$warnings}")
 }
+
+if(length(check1$messages) > 0) {
+  logger::log_warn("Messages found in the LAS object: {check1$messages}")
+}
+
 
 if(nrow(las) < 100){
   logger::log_error("Las file has < 100 points and will be dropped")
@@ -274,21 +323,25 @@ if(!is_transformable){
     # stop("CRS is not transformable to epsg:3857")
 }
 
-logger::log_info("CRS compleate, compile coloring information.")
+logger::log_info("CRS compleate, write outputs.")
 
 
-summarystats <- function(x) c(min = min(x), max = max(x), mean = mean(x), median = median(x), sd = sd(x), q = quantile(x, c(0.05, 0.95)), n_unique = length(unique(x)),unique_point_ratio = length(unique(x)) / length(x), type = typeof(x))
-col_info <- list()
+# summarystats <- function(x) c(min = min(x), max = max(x), mean = mean(x), median = median(x), sd = sd(x), q = quantile(x, c(0.05, 0.95)), n_unique = length(unique(x)),unique_point_ratio = length(unique(x)) / length(x), type = typeof(x))
+# col_info <- list()
 
-col_info$has_RGB <- all(c("R","G","B") %in% colnames(las@data))
-col_info$summary_labels <- c("min","max","mean","median","sd","qantile5percent","qantile95percent", "n_unique", "unique_point_ratio", "type")
-col_info$attribute_summary <- lapply(las@data, summarystats)
+has_RGB <- all(c("R","G","B") %in% colnames(las@data))
+# col_info$summary_labels <- c("min","max","mean","median","sd","qantile5percent","qantile95percent", "n_unique", "unique_point_ratio", "type")
+# col_info$attribute_summary <- lapply(las@data, summarystats)
+# 
+# 
+# con <- file(log_path, "a+")
+#   jsonlite::write_json(col_info, con)
+# close(con)
+logger::log_info("Point cloud contains RGB values: {has_RGB}")
 
-con <- file(log_path, "a+")
-  jsonlite::write_json(col_info, con)
-close(con)
+# logger::log_info("Color information compleate, write outputs.")
 
-logger::log_info("Color information compleate, write outputs.")
+las_info_post <- las_info(las)
 
 # change directory to output folder
 setwd(output_folder)
@@ -302,3 +355,10 @@ if(is_transformable){
   logger::log_info("CRS is valid and transformable and the convex hull was written to convex_hull_wgs84.GeoJSON")
 }
 logger::log_info("File {fname} is valid and has been written to {output_file}.")
+logger::log_info("Writing Lasinfo for pointcloud before and after standardization.")
+las_info_pre$standardized <- FALSE
+las_info_post$standardized <- TRUE
+con <- file(log_path, "a+")
+  jsonlite::write_json(las_info_pre, con)
+  jsonlite::write_json(las_info_post, con)
+close(con)

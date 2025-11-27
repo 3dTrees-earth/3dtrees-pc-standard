@@ -1,5 +1,83 @@
 source("parameters.R")
 library(logger)
+library(lidR)
+
+#' @title LAS File Processing Script
+#' @description This script processes LiDAR LAS files by validating, cleaning, transforming, 
+#'              and standardizing them. It performs various checks on data quality, 
+#'              coordinate reference systems, and point density, then outputs a 
+#'              standardized LAS file and metadata.
+#' 
+#' @section Global Variables:
+#' \describe{
+#'   \item{args}{List of parsed command-line parameters. \code{list(output_dir, dataset_path, min_density)}}
+#'   \item{check1}{List containing results from \code{las_check()} function call. \code{list(errors, warnings, messages)}}
+#'   \item{col_list}{List created for each column during attribute statistics calculation. \code{list()}}
+#'   \item{con}{File connection object for JSON logging. \code{\link[base]{connection}}}
+#'   \item{convex_hull}{Matrix of coordinates representing the convex hull of the LiDAR points. \code{\link[base]{matrix}} or \code{sf::st_polygon}}
+#'   \item{convex_hull_sf}{Simple features object for the convex hull in WGS84. \code{sf::st_sfc}}
+#'   \item{covered_area}{Numeric value representing the area covered by the convex hull in square meters. \code{numeric}}
+#'   \item{cnt}{Numeric value counting total number of non-NA values in a column. \code{numeric}}
+#'   \item{convex_area}{Numeric value representing the convex hull area. \code{numeric}}
+#'   \item{density}{Numeric value representing point density. \code{numeric}}
+#'   \item{distinct_cnt}{Numeric value counting number of unique values in a column. \code{numeric}}
+#'   \item{e}{Error object from tryCatch blocks. \code{\link[base]{error}}}
+#'   \item{fname}{Character string containing the base filename without extension. \code{character}}
+#'   \item{f}{Character string containing the input file path. \code{character}}
+#'   \item{has_crs}{Logical indicating if the LAS file has a valid CRS. \code{logical}}
+#'   \item{has_RGB}{Logical indicating if the point cloud contains RGB values. \code{logical}}
+#'   \item{info}{List containing metadata about the LAS file. \code{list(bbox, point_count, crs, dimensions)}}
+#'   \item{is_transformable}{Logical indicating if CRS can be transformed to EPSG:4978. \code{logical}}
+#'   \item{is_within}{Numeric value indicating if centroid is within land area (0 or >0). \code{numeric}}
+#'   \item{i}{Numeric index for iteration. \code{numeric}}
+#'   \item{idx}{Numeric index vector for sampling points. \code{numeric}}
+#'   \item{land}{Simple features object containing land area polygons. \code{sf::st_sfc}}
+#'   \item{las}{Main LAS object loaded from the input file. \code{\link[lidR]{LAS-class}}}
+#'   \item{las_info_post}{List of statistics after LAS processing. \code{list()}}
+#'   \item{las_info_pre}{List of statistics before LAS processing. \code{list()}}
+#'   \item{log_path}{Character string for the log file path. \code{character}}
+#'   \item{logger}{Logging system configuration object. \code{\link[logger]{logger}}}
+#'   \item{mn}{Numeric minimum value for a column. \code{numeric}}
+#'   \item{min_density_threshold}{Minimum acceptable point density. \code{numeric}}
+#'   \item{me}{Numeric median value for a column. \code{numeric}}
+#'   \item{mx}{Numeric maximum value for a column. \code{numeric}}
+#'   \item{na_s}{Vector of row indices with NA values. \code{numeric}}
+#'   \item{nulls}{Numeric count of NA values in a column. \code{numeric}}
+#'   \item{output_file}{Character string for the output LAS filename. \code{character}}
+#'   \item{output_folder}{Character string for the output directory path. \code{character}}
+#'   \item{point_density}{Numeric value of calculated point density. \code{numeric}}
+#'   \item{random_sample}{Logical vector for random sample selection. \code{logical}}
+#'   \item{removed}{Numeric counter for removed attributes or points. \code{numeric}}
+#'   \item{sdv}{Numeric standard deviation for numeric columns. \code{numeric}}
+#'   \item{types}{Character vector mapping data types. \code{character}}
+#'   \item{vec}{Vector containing column data for processing. \code{\link[base]{vector}}}
+#'   \item{wgs84_coordinates}{Data frame with coordinates in WGS84. \code{\link[base]{data.frame}}}
+#' }
+#' 
+#' @section Functions:
+#' \describe{
+#'   \item{attribute_stats()}{Calculates statistics for attributes in a LAS data frame.
+#'     @param df Data frame containing LAS data. \code{\link[base]{data.frame}}
+#'     @param na.rm Logical indicating whether NA values should be removed. \code{logical}
+#'     @return Returns a list with column statistics. \code{list}}
+#'     @details This function iterates over columns to compute descriptive statistics 
+#'              including count, NA count, distinct values, min, max, mean, median, 
+#'              and standard deviation for numeric columns.}
+#'   
+#'   \item{las_info()}{Extracts metadata from a LAS object.
+#'     @param las LAS object to analyze. \code{\link[lidR]{LAS-class}}
+#'     @return Returns a list with LAS metadata. \code{list}}
+#'     @details This function gathers bounding box, point count, CRS, and dimension 
+#'              information from the LAS object.}
+#' }
+#' 
+#' @author Unknown
+#' @date Unknown
+#' @note This script processes LAS files through multiple validation and transformation 
+#'       steps including CRS validation, point density checks, NA handling, and data 
+#'       standardization. Output files include the standardized LAS file and a JSON 
+#'       metadata file documenting processing changes.
+
 
 attribute_stats <- function(df, na.rm = TRUE) {
   
@@ -66,9 +144,6 @@ if(file.exists(log_path)) {
 
 logger::log_appender(appender_file(log_path))
 logger::log_debug("Parameters parsed: {args}")
-
-# load the necessary libraries
-library(lidR)
 
 # Try to read the file directly with lidR, bypassing extension check
 logger::log_info("Attempting to read file directly: {f}")
@@ -153,6 +228,7 @@ if(nrow(las) > 5e+08){ # point cloud > 500,000,000 points allocate gigantic amou
 
 convex_hull <- list(as.matrix(rbind(convex_hull, convex_hull[1,]))) |> sf::st_polygon()
 covered_area <- convex_hull |> sf::st_area()
+convex_area <- lidR::st_area(las)
 point_density <- nrow(las@data) / covered_area
 min_density_threshold <- args$min_density
 logger::log_info("Point density: {point_density} points/m², minimum threshold: {min_density_threshold} points/m²")

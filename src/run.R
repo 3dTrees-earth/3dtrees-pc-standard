@@ -233,8 +233,8 @@ point_density <- nrow(las@data) / covered_area
 min_density_threshold <- args$min_density
 logger::log_info("Point density: {point_density} points/m², minimum threshold: {min_density_threshold} points/m²")
 if(point_density <= min_density_threshold) {
-  logger::log_error("Point density is less than or equal to {min_density_threshold} points per square meter. Is this maybe ALS data or multiple separated plots in one file?")
-    stop("Point density is less than or equal to ", min_density_threshold, " points per square meter. Is this maybe ALS data or multiple separated plots in one file?")
+  logger::log_warn("Point density is less than or equal to {min_density_threshold} points per square meter. Is this maybe ALS data or multiple separated plots in one file?")
+    #stop("Point density is less than or equal to ", min_density_threshold, " points per square meter. Is this maybe ALS data or multiple separated plots in one file?")
 }
 
 logger::log_info("Chull compleate, start attribute check.")

@@ -1,4 +1,4 @@
-source("parameters.R")
+source("/src/parameters.R")
 library(logger)
 library(lidR)
 
@@ -369,7 +369,7 @@ if(is_transformable){
     centroid <- sf::st_centroid(sf::st_as_sfc(bbox))
     
     # load land file
-    land <- sf::st_read("geodata/ne_10m_land.shp", quiet = T)
+    land <- sf::st_read("/src/geodata/ne_10m_land.shp", quiet = T)
     
     # check if the centroid is within the land area
     is_within <- length(sf::st_within(sf::st_transform(centroid,sf::st_crs(land)), land))
@@ -377,7 +377,7 @@ if(is_transformable){
     
     # second try with small islands
     if(is_within == 0) {
-    land <- sf::st_read("geodata/ne_10m_minor_islands.shp", quiet = T)
+    land <- sf::st_read("/src/geodata/ne_10m_minor_islands.shp", quiet = T)
     is_within <- length(sf::st_within(sf::st_transform(centroid,sf::st_crs(land)), land))
     logger::log_info("Centroid is within minor island area: {is_within > 0}")
     }

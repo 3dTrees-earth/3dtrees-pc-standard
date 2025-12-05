@@ -79,48 +79,15 @@ library(lidR)
 #'       metadata file documenting processing changes.
 
 
-attribute_stats <- function(df, na.rm = TRUE) {
-  
-  ## Iterate over column names -------------------------------------------------
-  col_list <- lapply(names(df), function(col) {
-    vec <- df[[col]]
-    
-    ## basic descriptors -------------------------------------------------------
-    is_num   <- is.numeric(vec)                   # numeric ? → mean/SD/hist
-    cnt      <- length(vec)                       # total # of rows
-    nulls    <- sum(is.na(vec))                    # NA count
-    distinct_cnt <- length(unique(vec[!is.na(vec)]))  # distinct (ignores NAs)
-    
-    ## numeric‑only statistics --------------------------------------------------
-    mn  <- if (is_num) min(vec, na.rm = TRUE) else NA_real_
-    mx  <- if (is_num) max(vec, na.rm = TRUE) else NA_real_
-    av  <- if (is_num) mean(vec, na.rm = na.rm) else NA_real_
-    me <- if (is_num) median(vec, na.rm = na.rm) else NA_real_
-    sdv <- if (is_num) sd(vec,   na.rm = na.rm) else NA_real_
-    
-    ## Return a **named list** that represents one row of the final table ------
-    list(
-      name        = col,
-      count       = cnt,
-      nulls       = nulls,
-      distinct    = distinct_cnt,
-      minimum     = mn,
-      maximum     = mx,
-      average     = av,
-      median      = me,
-      stddev      = sdv
-    )
-})}
+######################################
+## functions
+######################################
 
-las_info <- function(las){
-  info <- list()
-  info$bbox <- as.list(lidR::st_bbox(las))
-  info$point_count <- nrow(las@data)
-  info$crs <- jsonlite::toJSON(lapply(lidR::st_crs(las), as.list))
-  info$dimensions <- attribute_stats(las@data)
-  return(info)
-}
+source("src/helper_functions.R")
 
+######################################
+## init
+######################################
 # setup logging i json format
 logger::log_layout(logger::layout_json())
 
@@ -129,6 +96,16 @@ args <- parse_parameters()
 logger::log_threshold(INFO)
 output_folder <- args$output_dir
 f <- args$dataset_path
+
+######################################
+## single files check and corrections
+######################################
+
+# TODO:
+# - output files in original file names
+# - Drop columns according to input parameter
+
+
 fname <- basename(f)
 # strip off file ending
 fname <- sub("\\.las$|\\.laz$", "", fname)
@@ -205,39 +182,39 @@ logger::log_info("Extend in X: {extend_x}")
 logger::log_info("Extend in Y: {extend_y}")
 logger::log_info("Extend in Z: {extend_z}")
 
-if(extend_x <= 1 || extend_y <= 1 || extend_z <= 1) {
-  logger::log_error("Extend in one or more dimensions is less than or equal to 1m")
-    stop("Extend in one or more dimensions is less than or equal to 1m")
-}
+# if(extend_x <= 1 || extend_y <= 1 || extend_z <= 1) {
+#   logger::log_error("Extend in one or more dimensions is less than or equal to 1m")
+#     stop("Extend in one or more dimensions is less than or equal to 1m")
+# }
 
 # check if the Z coordinate range is plausible > -100 & < 5500 
 if(any(extend_z < -100 || extend_z > 5500)) {
   logger::log_error("Z coordinate range is not plausible: < -100 or > 5500")
-    stop("Z coordinate range is not plausible: < -100 or > 5500")
+    # stop("Z coordinate range is not plausible: < -100 or > 5500")
 }
 
-logger::log_info("Extend check compleate, start chull calculation.")
+# logger::log_info("Extend check compleate, start chull calculation.")
 
-# calculate the point density
-if(nrow(las) > 5e+08){ # point cloud > 500,000,000 points allocate gigantic amounts of memory
-  idx <- sample(1:nrow(las), 5e+08)
-  convex_hull <- las@data[idx,c("X","Y")][chull(las@data[idx,c("X","Y")]),] 
-} else {
-  convex_hull <- las@data[chull(las@data[,c("X","Y")]),c("X","Y")]
-}
+# # calculate the point density
+# if(nrow(las) > 5e+08){ # point cloud > 500,000,000 points allocate gigantic amounts of memory
+#   idx <- sample(1:nrow(las), 5e+08)
+#   convex_hull <- las@data[idx,c("X","Y")][chull(las@data[idx,c("X","Y")]),] 
+# } else {
+#   convex_hull <- las@data[chull(las@data[,c("X","Y")]),c("X","Y")]
+# }
+# 
+# convex_hull <- list(as.matrix(rbind(convex_hull, convex_hull[1,]))) |> sf::st_polygon()
+# covered_area <- convex_hull |> sf::st_area()
+# convex_area <- lidR::st_area(las)
+# point_density <- nrow(las@data) / covered_area
+# min_density_threshold <- args$min_density
+# logger::log_info("Point density: {point_density} points/m², minimum threshold: {min_density_threshold} points/m²")
+# if(point_density <= min_density_threshold) {
+#   logger::log_warn("Point density is less than or equal to {min_density_threshold} points per square meter. Is this maybe ALS data or multiple separated plots in one file?")
+#     #stop("Point density is less than or equal to ", min_density_threshold, " points per square meter. Is this maybe ALS data or multiple separated plots in one file?")
+# }
 
-convex_hull <- list(as.matrix(rbind(convex_hull, convex_hull[1,]))) |> sf::st_polygon()
-covered_area <- convex_hull |> sf::st_area()
-convex_area <- lidR::st_area(las)
-point_density <- nrow(las@data) / covered_area
-min_density_threshold <- args$min_density
-logger::log_info("Point density: {point_density} points/m², minimum threshold: {min_density_threshold} points/m²")
-if(point_density <= min_density_threshold) {
-  logger::log_warn("Point density is less than or equal to {min_density_threshold} points per square meter. Is this maybe ALS data or multiple separated plots in one file?")
-    #stop("Point density is less than or equal to ", min_density_threshold, " points per square meter. Is this maybe ALS data or multiple separated plots in one file?")
-}
-
-logger::log_info("Chull compleate, start attribute check.")
+logger::log_info("Extend check compleate, start attribute check.")
 
 # check the extra byte arguments have the right data type from las@header@VLR$Extra_Bytes$`Extra Bytes Description`
 # Type 1: char (1 byte) (not allowed in R)

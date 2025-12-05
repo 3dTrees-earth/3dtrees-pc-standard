@@ -8,8 +8,8 @@ parse_parameters <- function() {
         "--dataset-path", "--dataset_path",
         type = "character",
         required = TRUE,
-        default = "/in/dataset.laz",
-        help = "Input dataset path (LAS/LAZ) file"
+        default = "/in/",
+        help = "Input dataset path of (LAS/LAZ) files folder"
     )
 
     parser$add_argument(

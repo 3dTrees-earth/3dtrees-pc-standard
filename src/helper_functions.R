@@ -73,7 +73,7 @@ chull_to_polygon <- function(coords, crs = sf::NA_crs_) {
   }
   
   sf::st_sf(
-    geometry = sf::st_sfc(st_polygon(list(m)), crs = crs)
+    geometry = sf::st_sfc(sf::st_polygon(list(m)), crs = crs)
   )
 }
 

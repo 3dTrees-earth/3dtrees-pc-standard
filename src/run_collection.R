@@ -1,17 +1,3 @@
-source("/src/parameters.R")
-source("src/helper_functions.R")
-library(logger)
-library(lidR)
-
-######################################
-## init
-######################################
-
-# args <- list(output_dir = getwd(), dataset_path = "C:/TLS/docker/input/Platane_pcrs.laz", min_density = 250)
-args <- parse_parameters()
-output_folder <- args$output_dir
-f <- args$dataset_path
-
 ######################################
 ## collection check
 ######################################

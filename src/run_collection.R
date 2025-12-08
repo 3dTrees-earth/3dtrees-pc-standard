@@ -133,7 +133,7 @@ for (attr_nm in all_attr_names) {
 }
 
 non_na_attr <- setdiff(all_attr_names, only_na_attr)
-non_na_0_attr <- setdiff(non_na_attr, zero_mean_sd_attributes)
+non_na_0_attr <- setdiff(non_na_attr, zero_mean_sd_attr)
 
 ## 3) Attribute types homogeneity --------------------------------------------
 attr_types_list <- lapply(files_info, `[[`, "attr_types")
@@ -184,8 +184,13 @@ any_disjoint <- any(!apply(disj_mat,1,any))
 
 ## 5) Multipolygon WKT (concave hull map) -------------------------------------
 
-mp_sf  <- polygons_to_multipolygon(tile_polys, files = names(files_info))
-mp_wkt <- sf::st_as_text(sf::st_geometry(mp_sf)[[1]])
+mp_sf  <- polygons_to_multipolygon(tile_polys, files = names(files_info)) |> sf::st_geometry()
+sf::st_crs(mp_sf) <- crs_list[[1]]
+if(is_crs_defined(crs_list[[1]]) & is_crs_transformable(crs_list[[1]])){
+  mp_sf <- sf::st_transform(mp_sf, 4326)
+}
+
+mp_wkt <- sf::st_as_text(mp_sf[[1]])
 
 ## 6) Global attribute statistics over all tiles -------------------------------
 
@@ -235,6 +240,7 @@ files_info_json <- lapply(files_info, function(info) {
 collection_checks <- list(
   n_tiles                      = length(files_info),
   homogeneous_crs              = homogeneous_crs,
+  first_crs                    = files_info_json[[1]]$crs,
   crs_epsg_values              = unique_epsg,
   homogeneous_attribute_names  = homogeneous_attr_names,
   reference_attribute_names    = ref_attr_names,

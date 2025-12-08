@@ -100,3 +100,19 @@ polygons_to_multipolygon <- function(polys, files = NULL) {
     geometry = mp
   )
 }
+
+# Is the CRS defined / usable by sf?
+is_crs_defined <- function(crs) {
+  !is.na(crs) && !is.na(crs$wkt)
+}
+
+# Can this CRS be transformed to some target (e.g. EPSG:4326)?
+is_crs_transformable <- function(crs, target = 4326) {
+  if (!is_crs_defined(crs)) return(FALSE)
+  
+  # create a dummy geometry with this CRS and try to transform it
+  g <- sf::st_sfc(sf::st_point(c(0, 0)), crs = crs)
+  res <- try(sf::st_transform(g, target), silent = TRUE)
+  
+  !inherits(res, "try-error")
+}

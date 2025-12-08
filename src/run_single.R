@@ -340,7 +340,7 @@ output_file <- paste0(fname, ".laz") #"pc_standardized.laz"
 writeLAS(las, output_file)
 if(is_transformable){
   
-  sf::st_write(convex_hull_sf, "convex_hull_wgs84.GeoJSON", append=FALSE)
+  sf::st_write(convex_hull_sf, paste0(fname, "_convex_hull_wgs84.GeoJSON"), append=FALSE)
   logger::log_info("CRS is valid and transformable and the convex hull was written to convex_hull_wgs84.GeoJSON")
 }
 logger::log_info("File {fname} is valid and has been written to {output_file}.")

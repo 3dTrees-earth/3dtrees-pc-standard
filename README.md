@@ -1,76 +1,143 @@
-# 3dtrees-pc-standard
-This is written in R on version 4.5, required packages: `lidR, data.table, SF, jsonlite`
+# 3DTrees LAS/LAZ Validation and Standardization Tool
 
-las/laz file checks and standardization. This script is meant to run in a container later on. 
-`validate_las.R` loads all point clouds from las/laz files in the input folder and performs the
-following check. If no error occurs, it will write a laz file with Point Format <= 7, which 
-is necessary to be used with e.g. pylas, in the output folder. In any case, it will write a json
-with all errors and warnings, and the same filename as the las/laz-file to the output folder.
+This repository provides a command‑line tool (with a Docker image) to:
 
-1. Basic LAS Validation
+- **Validate and standardize single LAS/LAZ point clouds**, and  
+- **Check consistency and basic quality of LAS/LAZ collections** (tile sets),
 
-        When a LAS file is loaded, it shall validate the LAS object using las_check().
-    
-        If any errors are returned by las_check(), it shall store them in the error list.
-    
-        If the LAS file has fewer than 100 points, it shall raise an error and skip further processing.
+with a focus on LiDAR / TLS datasets for tree and forest applications.
 
-2. Bounding Box Consistency
-    
-        If a warning indicates that the header's bounding box does not match the points, it shall update the LAS object and store a warning.
-    
-        When checking spatial extent, it shall calculate the extend in X, Y, and Z dimensions.
-    
-        If any dimension is ≤ 1 meter, it shall raise an error indicating insufficient spatial extent.
-    
-        If the Z dimension range is < -100 or > 5500 meters, it shall raise an error indicating an implausible Z range.
+The core logic is written in R version 4.5 using [`lidR`](https://github.com/r-lidar/lidR),  [`sf`](https://r-spatial.github.io/sf/), and [`jsonlite`](https://github.com/jeroen/jsonlite).  
+A ready‑to‑use Docker image is defined in the `Dockerfile`.
 
-3. Point Density Check
-    
-        When calculating point density, it shall compute the convex hull of X and Y coordinates.
-    
-        If the point density is ≤ 1000 points/m², it shall raise an error and recommend checking for ALS data or multiple plots.
+---
 
-4. Extra Byte Data Type Check
+## Features
 
-        When checking extra byte attributes, it shall map each attribute’s data type to the expected R class.
-    
-        If any mismatch is found, it shall raise a warning and attempt to correct the attribute definition.
+### Single‑file mode (`--method single_file`)
 
-5. CRS Validation
+For a single LAS/LAZ file, the tool:
 
-        If the LAS file lacks a CRS, it shall raise an error.
-    
-        If the CRS exists, it shall attempt to transform the file to EPSG:3857.
-    
-        If the transformation fails, it shall raise an error.
+- Loads the file via `lidR::readLAS()`
+- Runs `lidR::las_check()` and logs errors, warnings, and messages
+- Fixes some header issues:
+  - If points lie outside the header bounding box, `las_update()` is applied
+- Checks basic geometry / plausibility:
+  - Reports extent in X, Y, and Z
+  - Warns if Z range is implausible (`< -100` or `> 5500`)
+- Computes point density:
+  - Via a convex hull of XY coordinates
+  - Warns if density is ≤ `--min-density` (points / m²)
+- Checks and fixes attributes:
+  - Computes per‑column statistics (`attribute_stats()`):  
+    counts, NA counts, distinct values, min / max / mean / median / SD, sums, etc.
+  - Validates LAS “Extra Bytes” definitions against actual R data types and hot‑fixes mismatches in the header
+  - Optionally **removes attributes** by name (`--removeable_attributes`)
+- Checks and handles CRS:
+  - Verifies that a CRS is defined
+  - Tries to transform a random sample to **EPSG:4978**
+  - Builds a convex hull polygon, transforms it to **EPSG:4326**, and checks:
+    - Longitude/latitude plausibility (inside world bounds)
+    - Whether the bounding box centroid lies on land  
+      (using `/src/geodata/ne_10m_land.shp` and `ne_10m_minor_islands.shp`)
+  - If CRS is not transformable or implausible:
+    - Logs an error
+    - Re‑offsets X, Y, Z so the cloud starts at (0, 0, 0)
+    - Assigns a **fake CRS EPSG:4978** (so that later processes still have a defined CRS)
+- Harmonizes point data format:
+  - If `Point Data Format ID > 7`, demotes it to **7**
+  - If a `NIR` channel exists, moves it to an Extra Byte (`NIRe`) and drops the original `NIR` column
+- Writes outputs:
+  - A **standardized `.laz`** file
+  - A **GeoJSON** convex hull in WGS84 (`*_convex_hull_wgs84.GeoJSON`) when CRS is usable
+  - A **JSON log file** with LAS metadata pre‑ and post‑standardization
 
-6. Point Data Format Check
-    
-        If the LAS Point Data Format ID > 7, it shall:
-    
-            downgrade the format to 7,
-    
-            rename the NIR channel to "NIRe",
-    
-            raise a warning about potential loss of full waveform data.
+---
 
-7. Land Coverage Validation
-    
-        If the LAS file has a valid and transformable CRS, it shall:
-    
-            calculate the centroid of the bounding box,
-    
-            check whether the centroid lies within a known land area using a shapefile.
-    
-        If the centroid is not on land, it shall raise an error.
+### Collection mode (`--method collection`)
 
-8. Output Writing
-    
-        When all checks are complete, it shall:
-    
-            write warnings and errors to a JSON file.
-    
-            If no errors are present, it shall write the LAZ file to the output folder.
-    
-            If any errors are present, it shall not write the LAZ file to the output folder.
+For a directory containing multiple LAS/LAZ files, the tool:
+
+1. **Scans the folder** for `*.las` and `*.laz` files.
+
+2. For each file:
+   - Reads the LAS/LAZ
+   - Stores:
+     - File ID and name
+     - CRS (`sf::st_crs`)
+     - Attribute names and R data types
+     - A convex hull of XY coordinates (sampled if extremely large)
+     - Number of points
+     - Per‑attribute statistics via `attribute_stats()` (as above)
+
+3. **Collection‑level checks**:
+
+   - **CRS homogeneity**
+     - Extracts CRS for each file and compares EPSG codes
+     - Reports whether all tiles share the same CRS
+
+   - **Attribute name homogeneity**
+     - Checks if all tiles have the same set and order of columns
+     - Computes:
+       - All attribute names (union)
+       - Common attribute names (intersection)
+       - Non‑overlapping attribute names (present only in some tiles)
+
+   - **Attribute content screening**
+     - Identifies attributes that are:
+       - **Only NA** in all tiles
+       - **Always zero** (mean = 0 and SD = 0 in every tile where they are present)
+     - Derives a set of **“removable” attributes**:  
+       attributes that are either all‑NA or constant zero across the collection
+
+   - **Attribute type homogeneity**
+     - Compares R classes of attributes against the first tile
+     - Reports whether types are consistent across the collection
+
+   - **Tile geometry / tiling sanity checks**  
+     (using convex hull polygons of each tile):
+     - Builds per‑tile `sf` polygons from the convex hulls
+     - Uses buffered geometry to:
+       - Detect overlaps (using `st_overlaps` on slightly **shrunk** polygons)
+       - Check whether tiles are (approximately) disjoint (using `st_disjoint` on slightly **expanded** polygons)
+
+   - **Concave hull / coverage map**
+     - Combines per‑tile polygons into a single `MULTIPOLYGON`
+       using `polygons_to_multipolygon()`
+     - Assigns the CRS of the first tile
+     - If the CRS is defined and transformable, transforms the multipolygon to **EPSG:4326**
+     - Exports the **multipolygon as WKT** (text), suitable for downstream use
+
+   - **Global attribute statistics**
+     - For each attribute that has **non‑NA and non‑constant** values across the collection:
+       - Aggregates per‑tile statistics (`n`, sum, sum of squares)
+       - Computes global mean, variance, and standard deviation  
+         using `multi_tile_variance()`
+
+4. **Writes one JSON summary** per collection:
+   - `collection_summary.json` in `--output-dir`
+   - Structure:
+     - `collection`: collection‑level checks and stats
+       - `n_tiles`, CRS homogeneity, example CRS, EPSG codes
+       - Attribute name & type homogeneity
+       - All / common / non‑overlapping attribute names
+       - Lists of attributes that are only NA, only zeros, and suggested removable attributes
+       - Tile overlap/disjoint flags
+       - Global attribute statistics
+       - Multipolygon WKT of the coverage
+     - `files`: per‑file entries
+       - `crs` (as a simple list), attributes, attribute types
+       - Per‑attribute stats, convex hull coordinates, point counts, etc.
+
+This mode does **not** modify data; it is purely for validation and summary.
+
+---
+
+## Installation
+
+### 1. Using Docker (recommended)
+
+Build the image:
+
+```bash
+docker build -t 3dtrees-lidar .

@@ -3,13 +3,13 @@ library(argparse)
 parse_parameters <- function() {
     # Setup the parser
     parser <- ArgumentParser(description = "3DTrees LAS/LAZ validation and standardization tool")
-
+    
     parser$add_argument(
         "--dataset-path", "--dataset_path",
         type = "character",
         required = TRUE,
-        default = "/in/dataset.laz",
-        help = "Input dataset path (LAS/LAZ) file"
+        default = "/in/",
+        help = "Input dataset path of (LAS/LAZ) files or folders"
     )
 
     parser$add_argument(
@@ -26,6 +26,22 @@ parse_parameters <- function() {
         required = FALSE,
         default = 10,
         help = "Minimum point density threshold (points per square meter)"
+    )
+    
+    parser$add_argument(
+        "--removeable_attributes", "--removeable_attributes",
+        type = "character",
+        required = FALSE,
+        default = '',
+        nargs='+',
+        help = "Argument to remove collumns, usually NA or empty ones, for single file checks."
+    )
+    
+    parser$add_argument(
+        "--method",
+        type = "character",
+        default = "single_file",
+        help = "Is the input a single las/laz file or a colelction. Collection will check the collection while single files get standardized."
     )
 
     # Parse the arguments

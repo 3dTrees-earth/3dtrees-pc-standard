@@ -44,6 +44,20 @@ parse_parameters <- function() {
         help = "Is the input a single las/laz file or a colelction. Collection will check the collection while single files get standardized."
     )
 
+    parser$add_argument(
+        "--approx-lon", "--approx_lon",
+        type = "double",
+        required = FALSE,
+        help = "Approximate collection longitude in EPSG:4326. When paired with --approx-lat, overrides the calculated collection centroid."
+    )
+
+    parser$add_argument(
+        "--approx-lat", "--approx_lat",
+        type = "double",
+        required = FALSE,
+        help = "Approximate collection latitude in EPSG:4326. When paired with --approx-lon, overrides the calculated collection centroid."
+    )
+
     # Parse the arguments
     args <- parser$parse_args()
 

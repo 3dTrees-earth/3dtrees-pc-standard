@@ -116,3 +116,79 @@ is_crs_transformable <- function(crs, target = 4326) {
   
   !inherits(res, "try-error")
 }
+
+is_valid_wgs84_point <- function(lon, lat) {
+  lon <- suppressWarnings(as.numeric(lon))[1]
+  lat <- suppressWarnings(as.numeric(lat))[1]
+
+  is.finite(lon) && is.finite(lat) &&
+    lon >= -180 && lon <= 180 &&
+    lat >= -90 && lat <= 90
+}
+
+unavailable_centroid <- function(source = "unavailable") {
+  list(
+    longitude = NA_real_,
+    latitude = NA_real_,
+    crs = "EPSG:4326",
+    source = source,
+    available = FALSE
+  )
+}
+
+collection_centroid <- function(mp_sf, geometry_is_wgs84, approx_lon = NA_real_, approx_lat = NA_real_) {
+  if (is_valid_wgs84_point(approx_lon, approx_lat)) {
+    return(list(
+      longitude = as.numeric(approx_lon)[1],
+      latitude = as.numeric(approx_lat)[1],
+      crs = "EPSG:4326",
+      source = "approximate_input",
+      available = TRUE
+    ))
+  }
+
+  if (isTRUE(geometry_is_wgs84)) {
+    centroid <- tryCatch({
+      point <- suppressWarnings(sf::st_centroid(mp_sf))
+      coords <- sf::st_coordinates(point)[1, ]
+
+      if (is_valid_wgs84_point(coords[["X"]], coords[["Y"]])) {
+        list(
+          longitude = unname(coords[["X"]]),
+          latitude = unname(coords[["Y"]]),
+          crs = "EPSG:4326",
+          source = "geometry",
+          available = TRUE
+        )
+      } else {
+        NULL
+      }
+    }, error = function(e) NULL)
+
+    if (is.null(centroid)) {
+      centroid <- tryCatch({
+        bbox <- sf::st_bbox(mp_sf)
+        lon <- mean(c(bbox[["xmin"]], bbox[["xmax"]]))
+        lat <- mean(c(bbox[["ymin"]], bbox[["ymax"]]))
+
+        if (is_valid_wgs84_point(lon, lat)) {
+          list(
+            longitude = unname(lon),
+            latitude = unname(lat),
+            crs = "EPSG:4326",
+            source = "geometry_bbox",
+            available = TRUE
+          )
+        } else {
+          NULL
+        }
+      }, error = function(e) NULL)
+    }
+
+    if (!is.null(centroid)) {
+      return(centroid)
+    }
+  }
+
+  unavailable_centroid("unavailable")
+}

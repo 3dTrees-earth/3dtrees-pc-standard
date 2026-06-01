@@ -104,9 +104,15 @@ For a directory containing multiple LAS/LAZ files, the tool:
    - **Concave hull / coverage map**
      - Combines per‑tile polygons into a single `MULTIPOLYGON`
        using `polygons_to_multipolygon()`
-     - Assigns the CRS of the first tile
-     - If the CRS is defined and transformable, transforms the multipolygon to **EPSG:4326**
-     - Exports the **multipolygon as WKT** (text), suitable for downstream use
+     - If possible, transforms summary-facing tile hull coordinates and multipolygon WKT to **EPSG:4326**
+     - If the collection CRS is not transformable to **EPSG:4326**, writes the source/local
+       geometry and labels it with `multipolygon_crs`, `multipolygon_source`, and
+       per-file `concave_hull_crs`
+
+   - **Centroid**
+     - Computes a WGS84 centroid from the transformed collection multipolygon
+     - If optional `--approx-lon` and `--approx-lat` inputs are provided,
+       uses them as the trusted centroid instead of the calculated one
 
    - **Global attribute statistics**
      - For each attribute that has **non‑NA and non‑constant** values across the collection:
@@ -124,10 +130,12 @@ For a directory containing multiple LAS/LAZ files, the tool:
        - Lists of attributes that are only NA, only zeros, and suggested removable attributes
        - Tile overlap/disjoint flags
        - Global attribute statistics
-       - Multipolygon WKT of the coverage
+       - Multipolygon WKT of the coverage, labelled with its CRS/source
+       - WGS84 centroid with source (`geometry`, `approximate_input`, or
+         `unavailable`)
      - `files`: per‑file entries
        - `crs` (as a simple list), attributes, attribute types
-       - Per‑attribute stats, convex hull coordinates, point counts, etc.
+       - Per‑attribute stats, CRS-labelled convex hull coordinates, point counts, etc.
 
 This mode does **not** modify data; it is purely for validation and summary.
 

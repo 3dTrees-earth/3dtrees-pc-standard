@@ -182,15 +182,49 @@ diag(disj_mat) <- TRUE
 all_disjoint <- all(disj_mat)
 any_disjoint <- any(!apply(disj_mat,1,any))
 
-## 5) Multipolygon WKT (concave hull map) -------------------------------------
+## 5) Collection geometry and WGS84 centroid ----------------------------------
 
-mp_sf  <- polygons_to_multipolygon(tile_polys, files = names(files_info)) |> sf::st_geometry()
-sf::st_crs(mp_sf) <- crs_list[[1]]
-if(is_crs_defined(crs_list[[1]]) & is_crs_transformable(crs_list[[1]])){
-  mp_sf <- sf::st_transform(mp_sf, 4326)
+tile_polys_wgs84 <- NULL
+mp_sf_source <- polygons_to_multipolygon(tile_polys, files = names(files_info)) |> sf::st_geometry()
+sf::st_crs(mp_sf_source) <- crs_list[[1]]
+mp_sf_wgs84 <- NULL
+mp_is_wgs84 <- FALSE
+geometry_tile_polys <- tile_polys
+source_epsg <- crs_list[[1]]$epsg
+geometry_crs <- if (length(source_epsg) == 1 && !is.na(source_epsg)) paste0("EPSG:", source_epsg) else "LOCAL_OR_UNKNOWN"
+geometry_source <- "source"
+
+if(homogeneous_crs && is_crs_defined(crs_list[[1]]) && is_crs_transformable(crs_list[[1]])){
+  tile_polys_wgs84_try <- lapply(tile_polys, function(poly) {
+    try(sf::st_transform(poly, 4326), silent = TRUE)
+  })
+
+  if (!any(vapply(tile_polys_wgs84_try, inherits, logical(1), "try-error"))) {
+    mp_sf_try <- polygons_to_multipolygon(tile_polys_wgs84_try, files = names(files_info)) |> sf::st_geometry()
+    sf::st_crs(mp_sf_try) <- 4326
+    mp_coords <- sf::st_coordinates(mp_sf_try)
+    mp_coords_are_wgs84 <- all(vapply(seq_len(nrow(mp_coords)), function(i) {
+      is_valid_wgs84_point(mp_coords[i, "X"], mp_coords[i, "Y"])
+    }, logical(1)))
+
+    if (mp_coords_are_wgs84) {
+      tile_polys_wgs84 <- tile_polys_wgs84_try
+      mp_sf_wgs84 <- mp_sf_try
+      mp_is_wgs84 <- TRUE
+      geometry_tile_polys <- tile_polys_wgs84
+      geometry_crs <- "EPSG:4326"
+      geometry_source <- "wgs84_transform"
+    }
+  }
 }
 
-mp_wkt <- sf::st_as_text(mp_sf[[1]])
+mp_wkt <- sf::st_as_text((if (mp_is_wgs84) mp_sf_wgs84 else mp_sf_source)[[1]])
+centroid <- collection_centroid(
+  mp_sf = mp_sf_wgs84,
+  geometry_is_wgs84 = mp_is_wgs84,
+  approx_lon = args$approx_lon,
+  approx_lat = args$approx_lat
+)
 
 ## 6) Global attribute statistics over all tiles -------------------------------
 
@@ -230,12 +264,26 @@ global_attr_stats <- lapply(non_na_0_attr, function(attr_nm) {
 ## prepare JSON structure
 ######################################
 
-# make CRS JSON‑friendly (convert st_crs objects to simple lists)
-files_info_json <- lapply(files_info, function(info) {
+tile_hulls <- lapply(geometry_tile_polys, function(poly) {
+  coords <- sf::st_coordinates(poly)
+  data.frame(
+    X = unname(coords[, "X"]),
+    Y = unname(coords[, "Y"])
+  )
+})
+
+# make CRS JSON‑friendly and label hull coordinate CRS explicitly
+files_info_json <- setNames(lapply(names(files_info), function(nm) {
+  info <- files_info[[nm]]
+  hull <- tile_hulls[[nm]]
   info$crs <- as.list(info$crs)
   attr(info$crs, "class") <- NULL
+  info$concave_hull <- hull
+  info$concave_hull_crs <- geometry_crs
+  info$concave_hull_source <- geometry_source
+  info$concave_hull_available <- TRUE
   info
-})
+}), names(files_info))
 
 collection_checks <- list(
   n_tiles                      = length(files_info),
@@ -250,6 +298,11 @@ collection_checks <- list(
   tiles_all_disjoint           = all_disjoint,
   global_attribute_stats       = global_attr_stats,
   multipolygon_wkt             = mp_wkt,
+  multipolygon_crs             = geometry_crs,
+  multipolygon_source          = geometry_source,
+  multipolygon_available       = TRUE,
+  multipolygon_wgs84_available = mp_is_wgs84,
+  centroid                     = centroid,
   all_attribute_names          = all_attr_names,
   common_attribute_names       = common_attr_names,
   non_overlapping_attributes   = non_overlapping_attr_names,
@@ -262,4 +315,4 @@ result <- list(
 )
 
 out_file <- file.path(output_folder, "collection_summary.json")
-jsonlite::write_json(result, out_file, pretty = TRUE, auto_unbox = TRUE)
+jsonlite::write_json(result, out_file, pretty = TRUE, auto_unbox = TRUE, na = "null")

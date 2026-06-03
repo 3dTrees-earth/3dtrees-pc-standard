@@ -53,7 +53,18 @@ for(file in files){
 crs_list <- lapply(files_info, `[[`, "crs")
 crs_epsg <- sapply(crs_list, function(x) x$epsg)
 unique_epsg <- unique(crs_epsg)
-homogeneous_crs <- length(unique_epsg) == 1
+crs_labels <- vapply(crs_list, function(crs) {
+  epsg <- crs$epsg
+  wkt <- crs$wkt
+  if (length(epsg) == 1 && !is.na(epsg)) {
+    paste0("EPSG:", epsg)
+  } else if (length(wkt) == 1 && !is.na(wkt)) {
+    paste0("WKT:", wkt)
+  } else {
+    "LOCAL_OR_UNKNOWN"
+  }
+}, character(1))
+homogeneous_crs <- length(unique(crs_labels)) == 1
 
 ## 2) Attribute names homogeneity --------------------------------------------
 attr_names_list <- lapply(files_info, `[[`, "attributes")
@@ -167,58 +178,72 @@ tile_polys <- Map(
   tile_polys,
   names(files_info)
 )
-tiles_sf <- do.call(rbind, tile_polys)
 
 #TODO: add 1 m buffers as safety margins
 
-# overlaps (true overlap, not just touching)
-ov_mat <- sf::st_overlaps(sf::st_buffer(tiles_sf,-1), tiles_sf, sparse = FALSE)
-diag(ov_mat) <- FALSE
-any_overlap <- any(ov_mat)
+if (homogeneous_crs) {
+  # bind to one sf with a "tile" attribute
+  tiles_sf <- do.call(rbind, tile_polys)
 
-# disjoint?
-disj_mat <- sf::st_disjoint(sf::st_buffer(tiles_sf,100), tiles_sf, sparse = FALSE)
-diag(disj_mat) <- TRUE
-all_disjoint <- all(disj_mat)
-any_disjoint <- any(!apply(disj_mat,1,any))
+  # overlaps (true overlap, not just touching)
+  ov_mat <- sf::st_overlaps(sf::st_buffer(tiles_sf,-1), tiles_sf, sparse = FALSE)
+  diag(ov_mat) <- FALSE
+  any_overlap <- any(ov_mat)
+
+  # disjoint?
+  disj_mat <- sf::st_disjoint(sf::st_buffer(tiles_sf,100), tiles_sf, sparse = FALSE)
+  diag(disj_mat) <- TRUE
+  all_disjoint <- all(disj_mat)
+  any_disjoint <- any(!apply(disj_mat,1,any))
+} else {
+  any_overlap <- NA
+  all_disjoint <- NA
+  any_disjoint <- NA
+}
 
 ## 5) Collection geometry and WGS84 centroid ----------------------------------
 
 tile_polys_wgs84 <- NULL
-mp_sf_source <- polygons_to_multipolygon(tile_polys, files = names(files_info)) |> sf::st_geometry()
-sf::st_crs(mp_sf_source) <- crs_list[[1]]
+mp_sf_source <- NULL
 mp_sf_wgs84 <- NULL
 mp_is_wgs84 <- FALSE
+mp_available <- FALSE
 geometry_tile_polys <- tile_polys
 source_epsg <- crs_list[[1]]$epsg
-geometry_crs <- if (length(source_epsg) == 1 && !is.na(source_epsg)) paste0("EPSG:", source_epsg) else "LOCAL_OR_UNKNOWN"
+geometry_crs <- if (homogeneous_crs && length(source_epsg) == 1 && !is.na(source_epsg)) paste0("EPSG:", source_epsg) else if (homogeneous_crs) "LOCAL_OR_UNKNOWN" else "MIXED_OR_UNKNOWN"
 geometry_source <- "source"
 
-if(homogeneous_crs && is_crs_defined(crs_list[[1]]) && is_crs_transformable(crs_list[[1]])){
-  tile_polys_wgs84_try <- lapply(tile_polys, function(poly) {
-    try(sf::st_transform(poly, 4326), silent = TRUE)
-  })
+if (homogeneous_crs) {
+  mp_sf_source <- polygons_to_multipolygon(tile_polys, files = names(files_info)) |> sf::st_geometry()
+  sf::st_crs(mp_sf_source) <- crs_list[[1]]
+  mp_available <- TRUE
 
-  if (!any(vapply(tile_polys_wgs84_try, inherits, logical(1), "try-error"))) {
-    mp_sf_try <- polygons_to_multipolygon(tile_polys_wgs84_try, files = names(files_info)) |> sf::st_geometry()
-    sf::st_crs(mp_sf_try) <- 4326
-    mp_coords <- sf::st_coordinates(mp_sf_try)
-    mp_coords_are_wgs84 <- all(vapply(seq_len(nrow(mp_coords)), function(i) {
-      is_valid_wgs84_point(mp_coords[i, "X"], mp_coords[i, "Y"])
-    }, logical(1)))
+  if(is_crs_defined(crs_list[[1]]) && is_crs_transformable(crs_list[[1]])){
+    tile_polys_wgs84_try <- lapply(tile_polys, function(poly) {
+      try(sf::st_transform(poly, 4326), silent = TRUE)
+    })
 
-    if (mp_coords_are_wgs84) {
-      tile_polys_wgs84 <- tile_polys_wgs84_try
-      mp_sf_wgs84 <- mp_sf_try
-      mp_is_wgs84 <- TRUE
-      geometry_tile_polys <- tile_polys_wgs84
-      geometry_crs <- "EPSG:4326"
-      geometry_source <- "wgs84_transform"
+    if (!any(vapply(tile_polys_wgs84_try, inherits, logical(1), "try-error"))) {
+      mp_sf_try <- polygons_to_multipolygon(tile_polys_wgs84_try, files = names(files_info)) |> sf::st_geometry()
+      sf::st_crs(mp_sf_try) <- 4326
+      mp_coords <- sf::st_coordinates(mp_sf_try)
+      mp_coords_are_wgs84 <- all(vapply(seq_len(nrow(mp_coords)), function(i) {
+        is_valid_wgs84_point(mp_coords[i, "X"], mp_coords[i, "Y"])
+      }, logical(1)))
+
+      if (mp_coords_are_wgs84) {
+        tile_polys_wgs84 <- tile_polys_wgs84_try
+        mp_sf_wgs84 <- mp_sf_try
+        mp_is_wgs84 <- TRUE
+        geometry_tile_polys <- tile_polys_wgs84
+        geometry_crs <- "EPSG:4326"
+        geometry_source <- "wgs84_transform"
+      }
     }
   }
 }
 
-mp_wkt <- sf::st_as_text((if (mp_is_wgs84) mp_sf_wgs84 else mp_sf_source)[[1]])
+mp_wkt <- if (mp_available) sf::st_as_text((if (mp_is_wgs84) mp_sf_wgs84 else mp_sf_source)[[1]]) else NA_character_
 centroid <- collection_centroid(
   mp_sf = mp_sf_wgs84,
   geometry_is_wgs84 = mp_is_wgs84,
@@ -300,7 +325,7 @@ collection_checks <- list(
   multipolygon_wkt             = mp_wkt,
   multipolygon_crs             = geometry_crs,
   multipolygon_source          = geometry_source,
-  multipolygon_available       = TRUE,
+  multipolygon_available       = mp_available,
   multipolygon_wgs84_available = mp_is_wgs84,
   centroid                     = centroid,
   all_attribute_names          = all_attr_names,

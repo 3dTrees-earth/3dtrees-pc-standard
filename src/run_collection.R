@@ -262,4 +262,4 @@ result <- list(
 )
 
 out_file <- file.path(output_folder, "collection_summary.json")
-jsonlite::write_json(result, out_file, pretty = TRUE, auto_unbox = TRUE)
+jsonlite::write_json(result, out_file, pretty = TRUE, auto_unbox = TRUE, na = "null")

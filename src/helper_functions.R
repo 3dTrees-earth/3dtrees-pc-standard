@@ -1,4 +1,4 @@
-attribute_stats <- function(df, na.rm = TRUE) {
+attribute_stats <- function(df, na.rm = TRUE, exact_summary_limit = 1e7) {
   
   ## Iterate over column names -------------------------------------------------
   col_list <- lapply(names(df), function(col) {
@@ -8,17 +8,20 @@ attribute_stats <- function(df, na.rm = TRUE) {
     is_num   <- is.numeric(vec)                   # numeric ? → mean/SD/hist
     cnt      <- length(vec)                       # total # of rows
     nulls    <- sum(is.na(vec))                    # NA count
-    distinct_cnt <- length(unique(vec[!is.na(vec)]))  # distinct (ignores NAs)
+    non_na_count <- cnt - nulls
+    exact_summary <- cnt <= exact_summary_limit
+    distinct_cnt <- if (exact_summary) data.table::uniqueN(vec, na.rm = TRUE) else NA_integer_
     
     ## numeric‑only statistics --------------------------------------------------
-    mn  <- if (is_num) min(vec, na.rm = TRUE) else NA_real_
-    mx  <- if (is_num) max(vec, na.rm = TRUE) else NA_real_
-    av  <- if (is_num) mean(vec, na.rm = na.rm) else NA_real_
-    me <- if (is_num) median(vec, na.rm = na.rm) else NA_real_
-    sdv <- if (is_num) sd(vec,   na.rm = na.rm) else NA_real_
-    sov <- if (is_num) sum(vec,   na.rm = na.rm) else NA_real_ # sum of values
-    sosv <- if (is_num) sum((as.numeric(vec))^2, na.rm = na.rm) else NA_real_ # sum of squred values
-    n <- if (is_num) length(vec) - sum(is.na(vec)) else NA_real_# number of non NA values
+    has_numeric_values <- is_num && non_na_count > 0
+    mn  <- if (has_numeric_values) min(vec, na.rm = TRUE) else NA_real_
+    mx  <- if (has_numeric_values) max(vec, na.rm = TRUE) else NA_real_
+    sov <- if (has_numeric_values) sum(vec, na.rm = na.rm) else NA_real_ # sum of values
+    sosv <- if (has_numeric_values) sum((as.numeric(vec))^2, na.rm = na.rm) else NA_real_ # sum of squared values
+    av  <- if (has_numeric_values) sov / non_na_count else NA_real_
+    me <- if (has_numeric_values && exact_summary) median(vec, na.rm = na.rm) else NA_real_
+    sdv <- if (has_numeric_values && non_na_count > 1) sqrt((sosv - (sov^2 / non_na_count)) / (non_na_count - 1)) else NA_real_
+    n <- if (is_num) non_na_count else NA_real_# number of non NA values
     
     ## Return a **named list** that represents one row of the final table ------
     list(

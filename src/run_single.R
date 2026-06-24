@@ -95,14 +95,26 @@ logger::log_threshold(INFO)
 fname <- basename(f)
 # strip off file ending
 fname <- sub("\\.las$|\\.laz$", "", fname)
-# send log to a json file named f.json in output dir
-log_path <- file.path(output_folder, paste0(fname, ".json"))
+# send logs to a JSON Lines file and write metadata to a JSON file
+log_path <- file.path(output_folder, paste0(fname, ".log.jsonl"))
+metadata_path <- file.path(output_folder, paste0(fname, ".json"))
+metadata_tmp_path <- paste0(metadata_path, ".tmp")
 
 logger::log_info("Logging to {log_path}")
 
 if(file.exists(log_path)) {
   file.remove(log_path)
   logger::log_warn("Log {log_path} already existed and has been removed.")
+}
+
+if(file.exists(metadata_path)) {
+  file.remove(metadata_path)
+  logger::log_warn("Metadata {metadata_path} already existed and has been removed.")
+}
+
+if(file.exists(metadata_tmp_path)) {
+  file.remove(metadata_tmp_path)
+  logger::log_warn("Temporary metadata {metadata_tmp_path} already existed and has been removed.")
 }
 
 logger::log_appender(appender_file(log_path))
@@ -347,7 +359,14 @@ logger::log_info("File {fname} is valid and has been written to {output_file}.")
 logger::log_info("Writing Lasinfo for pointcloud before and after standardization.")
 las_info_pre$standardized <- FALSE
 las_info_post$standardized <- TRUE
-con <- file(log_path, "a+")
-  jsonlite::write_json(las_info_pre, con)
-  jsonlite::write_json(las_info_post, con)
-close(con)
+jsonlite::write_json(
+  list(
+    before_standardization = las_info_pre,
+    after_standardization = las_info_post
+  ),
+  metadata_tmp_path,
+  pretty = TRUE,
+  auto_unbox = TRUE,
+  na = "null"
+)
+file.rename(metadata_tmp_path, metadata_path)
